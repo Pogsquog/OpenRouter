@@ -132,6 +132,7 @@ Thumbs.db
 # Secrets/configs
 .openrouter_config.json
 config.json
+secrets/
 
 # Demo configs
 demo/*.json

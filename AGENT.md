@@ -71,3 +71,9 @@ export OPENROUTER_API_KEY="your-api-key-here"
 - Use fake API keys (starting with `sk-fake-`) for unit tests
 - Integration tests require a real API key
 - Mock responses appropriately for network calls
+
+## Grep usage
+Prefer ripgrep (rg) to grep eg:
+rg -n "TODO.*Qwen" src/
+rg --type=py "def main" .
+rg --json "\\buser_id\\b" | jq '.'

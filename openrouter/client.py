@@ -4,6 +4,7 @@ Core OpenRouter API client implementation.
 
 import asyncio
 import json
+import logging
 import os
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 from urllib.parse import urljoin
@@ -14,6 +15,10 @@ from pydantic import ValidationError
 from .exceptions import OpenRouterError, RateLimitError, AuthenticationError, ModelNotFoundError, InvalidRequestError
 from .models import ChatCompletionRequest, ChatCompletionResponse, ModelInfo, ModelListResponse
 from .utils import validate_api_key
+
+
+# Set up module-level logger
+logger = logging.getLogger(__name__)
 
 
 class AsyncOpenRouter:
@@ -33,6 +38,8 @@ class AsyncOpenRouter:
         max_retries: int = 3,
         retry_delay: float = 1.0,
         backoff_factor: float = 2.0,
+        log_level: str = "INFO",
+        enable_request_logging: bool = False,  # Security: Don't log sensitive data by default
     ):
         """
         Initialize the OpenRouter client.
@@ -46,6 +53,8 @@ class AsyncOpenRouter:
             max_retries: Maximum number of retries for failed requests.
             retry_delay: Base delay between retries in seconds.
             backoff_factor: Factor by which to multiply the delay between retries.
+            log_level: Logging level (DEBUG, INFO, WARNING, ERROR).
+            enable_request_logging: Whether to enable detailed request logging (WARNING: may log sensitive data).
         """
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
@@ -54,6 +63,9 @@ class AsyncOpenRouter:
         if not validate_api_key(self.api_key):
             raise ValueError("Invalid API key format")
 
+        # Security: Sanitize API key to prevent logging
+        self._api_key_hash = self._hash_api_key(self.api_key)
+
         self.base_url = base_url
         self.http_referer = http_referer
         self.x_title = x_title
@@ -61,12 +73,32 @@ class AsyncOpenRouter:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.backoff_factor = backoff_factor
+        self.enable_request_logging = enable_request_logging
+
+        # Set up logging
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout),
             headers=self._get_headers()
         )
-    
+
+        self.logger.info(f"Initialized OpenRouter client with base URL: {base_url}. API key hash: {self._api_key_hash}")
+
+    def _hash_api_key(self, api_key: str) -> str:
+        """
+        Create a hash of the API key for logging purposes without exposing the actual key.
+
+        Args:
+            api_key: The API key to hash
+
+        Returns:
+            A hash representation of the API key
+        """
+        import hashlib
+        return hashlib.sha256(api_key.encode()).hexdigest()[:16]  # First 16 chars of hash
+
     def _get_headers(self) -> Dict[str, str]:
         """Get the default headers for API requests."""
         headers = {
@@ -106,6 +138,11 @@ class AsyncOpenRouter:
         url = urljoin(self.base_url, endpoint)
         headers = self._get_headers()
 
+        self.logger.debug(f"Making {method} request to {url} (API key hash: {self._api_key_hash})")
+        if data and self.enable_request_logging:
+            # Only log request data if explicitly enabled for security
+            self.logger.debug(f"Request data: {data}")
+
         for attempt in range(self.max_retries + 1):
             try:
                 response = await self._client.request(
@@ -116,49 +153,65 @@ class AsyncOpenRouter:
                     **kwargs
                 )
 
+                self.logger.debug(f"Received response with status {response.status_code}")
+
                 if response.status_code == 429:  # Rate limit
+                    self.logger.warning(f"Rate limit hit on attempt {attempt + 1}, retrying...")
                     if attempt < self.max_retries:
                         # Exponential backoff
                         delay = self.retry_delay * (self.backoff_factor ** attempt)
+                        self.logger.debug(f"Waiting {delay}s before retry")
                         await asyncio.sleep(delay)
                         continue
                     else:
+                        self.logger.error(f"Rate limit exceeded after {self.max_retries} retries")
                         raise RateLimitError(
                             f"Rate limit exceeded after {self.max_retries} retries. "
                             f"Response: {response.text}"
                         )
                 elif response.status_code == 401:  # Unauthorized
+                    self.logger.error("Authentication failed")
                     raise AuthenticationError(
                         f"Authentication failed. Response: {response.text}"
                     )
                 elif response.status_code == 404:  # Not found
+                    self.logger.warning(f"Resource not found: {response.text}")
                     raise ModelNotFoundError(
                         f"Resource not found: {response.text}"
                     )
                 elif response.status_code == 422:  # Validation error
+                    self.logger.error(f"Invalid request: {response.text}")
                     raise InvalidRequestError(
                         f"Invalid request: {response.text}"
                     )
                 elif response.status_code >= 400:
+                    self.logger.error(f"API request failed with status {response.status_code}: {response.text}")
                     raise OpenRouterError(
                         f"API request failed with status {response.status_code}: {response.text}"
                     )
 
+                self.logger.debug(f"Request successful, status: {response.status_code}")
                 return response
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
+                self.logger.warning(f"Request timed out on attempt {attempt + 1}: {str(e)}")
                 if attempt < self.max_retries:
                     delay = self.retry_delay * (self.backoff_factor ** attempt)
+                    self.logger.debug(f"Waiting {delay}s before retry")
                     await asyncio.sleep(delay)
                     continue
                 else:
+                    self.logger.error(f"Request timed out after {self.max_retries} retries")
                     raise OpenRouterError(f"Request timed out after {self.max_retries} retries")
             except httpx.RequestError as e:
+                self.logger.warning(f"Request failed on attempt {attempt + 1}: {str(e)}")
                 if attempt < self.max_retries:
                     delay = self.retry_delay * (self.backoff_factor ** attempt)
+                    self.logger.debug(f"Waiting {delay}s before retry")
                     await asyncio.sleep(delay)
                     continue
                 else:
+                    self.logger.error(f"Request failed after {self.max_retries} retries: {str(e)}")
                     raise OpenRouterError(f"Request failed after {self.max_retries} retries: {str(e)}")
     
     async def chat_completions(
@@ -183,11 +236,16 @@ class AsyncOpenRouter:
         if fallback_models is None:
             fallback_models = []
 
+        self.logger.info(f"Starting chat completion request with model: {model}")
+        if fallback_models:
+            self.logger.debug(f"Fallback models: {fallback_models}")
+
         # Try primary model first
         all_models = [model] + fallback_models
 
         last_exception = None
         for i, current_model in enumerate(all_models):
+            self.logger.debug(f"Attempting model: {current_model} ({i+1}/{len(all_models)})")
             try:
                 request_data = ChatCompletionRequest(
                     model=current_model,
@@ -204,19 +262,24 @@ class AsyncOpenRouter:
                 result = ChatCompletionResponse.model_validate(response.json())
                 # Add model that was actually used to the response
                 result.route = current_model
+                self.logger.info(f"Chat completion successful using model: {current_model}")
                 return result
             except (ModelNotFoundError, RateLimitError, OpenRouterError) as e:
+                self.logger.warning(f"Model {current_model} failed: {str(e)}")
                 last_exception = e
                 # If this was the last model in the fallback list, raise the exception
                 if i == len(all_models) - 1:
+                    self.logger.error(f"All models failed, raising last exception: {str(e)}")
                     raise e
                 # Otherwise, continue to the next model
                 continue
 
         # This should not be reached, but just in case
         if last_exception:
+            self.logger.error("No models were successful")
             raise last_exception
         else:
+            self.logger.error("No models were attempted")
             raise OpenRouterError("No models were attempted")
 
     async def chat_completions_with_fallback(
@@ -294,6 +357,8 @@ class AsyncOpenRouter:
         Yields:
             Dict: Stream chunks as they arrive
         """
+        self.logger.info(f"Starting streaming chat completion with model: {model}")
+
         request_data = ChatCompletionRequest(
             model=model,
             messages=messages,
@@ -313,6 +378,7 @@ class AsyncOpenRouter:
             ) as response:
                 if response.status_code != 200:
                     response_text = await response.aread()
+                    self.logger.error(f"Stream request failed with status {response.status_code}")
                     if response.status_code == 429:
                         raise RateLimitError(f"Rate limit exceeded: {response_text}")
                     elif response.status_code == 401:
@@ -324,14 +390,19 @@ class AsyncOpenRouter:
                             f"Stream request failed with status {response.status_code}: {response_text}"
                         )
 
+                self.logger.debug("Stream connection established, starting to yield chunks")
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         chunk_data = line[6:]  # Remove "data: " prefix
                         if chunk_data.strip() == "[DONE]":
+                            self.logger.debug("Received [DONE] signal, ending stream")
                             break
                         try:
-                            yield json.loads(chunk_data)
+                            chunk = json.loads(chunk_data)
+                            self.logger.debug(f"Yielding stream chunk: {chunk.get('id', 'no-id')}")
+                            yield chunk
                         except json.JSONDecodeError:
+                            self.logger.debug("Skipping invalid JSON in stream")
                             continue
     
     async def list_models(self, **kwargs) -> List[ModelInfo]:
@@ -354,6 +425,11 @@ class AsyncOpenRouter:
 
         response = await self._make_request("GET", endpoint)
         response_data = ModelListResponse.model_validate(response.json())
+
+        # Update pricing cache with the new model information
+        from .utils import update_pricing_from_models
+        update_pricing_from_models(response_data.data)
+
         return response_data.data
 
     async def get_model_info(self, model_id: str) -> ModelInfo:
@@ -367,7 +443,13 @@ class AsyncOpenRouter:
             ModelInfo: Detailed model information
         """
         response = await self._make_request("GET", f"/models/{model_id}")
-        return ModelInfo.model_validate(response.json()["data"])
+        model_info = ModelInfo.model_validate(response.json()["data"])
+
+        # Update pricing cache with this model information
+        from .utils import update_pricing_from_models
+        update_pricing_from_models([model_info])
+
+        return model_info
 
     async def get_rate_limits(self) -> Dict[str, Any]:
         """
@@ -459,20 +541,57 @@ class OpenRouter:
     """
 
     def __init__(self, *args, **kwargs):
+        # Extract log_level from kwargs to pass to async client
         self._async_client = AsyncOpenRouter(*args, **kwargs)
+
+    def _hash_api_key(self, api_key: str) -> str:
+        """
+        Create a hash of the API key for logging purposes without exposing the actual key.
+
+        Args:
+            api_key: The API key to hash
+
+        Returns:
+            A hash representation of the API key
+        """
+        import hashlib
+        return hashlib.sha256(api_key.encode()).hexdigest()[:16]  # First 16 chars of hash
+
+    @property
+    def _api_key_hash(self):
+        """Get the API key hash from the async client."""
+        return self._async_client._api_key_hash
 
     def _run_sync(self, coro):
         """Run an async coroutine synchronously."""
+        # Use a simple approach with a new event loop each time to avoid threading issues
+        import asyncio
+        import concurrent.futures
+        import threading
+
+        def run_in_new_loop():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+
+        # If we're already in an event loop, run in a separate thread
         try:
-            loop = asyncio.get_running_loop()
-            # If we're already in a loop, create a new thread
-            import concurrent.futures
+            asyncio.get_running_loop()
+            # We're in an event loop, use thread executor
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, coro)
+                future = executor.submit(run_in_new_loop)
                 return future.result()
         except RuntimeError:
-            # No event loop running, safe to use asyncio.run
-            return asyncio.run(coro)
+            # No event loop running, safe to create and run one
+            return run_in_new_loop()
+
+    @property
+    def logger(self):
+        """Expose the logger from the async client."""
+        return self._async_client.logger
 
     def chat_completions(self, messages: List[Dict[str, str]], model: str = "openai/gpt-3.5-turbo", fallback_models: Optional[List[str]] = None, **kwargs):
         """Synchronous version of chat_completions."""

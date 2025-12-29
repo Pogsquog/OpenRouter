@@ -3,47 +3,144 @@ Additional utility functions for the OpenRouter library.
 """
 
 import re
+import time
 from typing import Dict, Any, Optional
+from .models import ModelInfo
+
+
+class PricingService:
+    """
+    Service for managing dynamic pricing information for OpenRouter models.
+    Fetches pricing data from the API and caches it to avoid repeated requests.
+    """
+
+    def __init__(self):
+        self._pricing_cache = {}
+        self._last_updated = 0
+        self._cache_duration = 3600  # Cache for 1 hour (3600 seconds)
+
+    def _is_cache_valid(self) -> bool:
+        """Check if the pricing cache is still valid."""
+        return (time.time() - self._last_updated) < self._cache_duration
+
+    def _get_default_pricing(self) -> Dict[str, Dict[str, float]]:
+        """
+        Get default pricing as fallback when API pricing is not available.
+        Note: These are example values and should be updated with real OpenRouter pricing.
+        """
+        return {
+            "openai/gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},  # per 1K tokens
+            "openai/gpt-4": {"input": 0.03, "output": 0.06},  # per 1K tokens
+            "openai/gpt-4-turbo": {"input": 0.01, "output": 0.03},  # per 1K tokens
+            "anthropic/claude-3-haiku": {"input": 0.00025, "output": 0.00125},  # per 1K tokens
+            "anthropic/claude-3-sonnet": {"input": 0.003, "output": 0.015},  # per 1K tokens
+            "anthropic/claude-3-opus": {"input": 0.015, "output": 0.075},  # per 1K tokens
+            "google/gemini-pro": {"input": 0.0005, "output": 0.0015},  # per 1K tokens
+            "mistral/mistral-7b-instruct": {"input": 0.0002, "output": 0.0002},  # per 1K tokens
+            "nousresearch/nous-hermes-2-mixtral-8x7b-dpo": {"input": 0.002, "output": 0.002},  # per 1K tokens
+        }
+
+    def update_pricing_from_models(self, models: list) -> None:
+        """
+        Update pricing cache from a list of ModelInfo objects.
+
+        Args:
+            models: List of ModelInfo objects containing pricing information
+        """
+        new_pricing = {}
+
+        for model in models:
+            if hasattr(model, 'pricing') and model.pricing:
+                pricing_info = model.pricing
+                # Extract input and output pricing if available
+                input_cost = pricing_info.get('prompt', 0.0)
+                output_cost = pricing_info.get('completion', 0.0)
+
+                # Convert to per 1K tokens format if needed
+                if 'per_token' in pricing_info:
+                    input_cost *= 1000  # Convert per-token to per-1K
+                    output_cost *= 1000
+
+                new_pricing[model.id] = {
+                    "input": input_cost,
+                    "output": output_cost
+                }
+            else:
+                # Use default pricing if model doesn't have pricing info
+                default_pricing = self._get_default_pricing()
+                if model.id in default_pricing:
+                    new_pricing[model.id] = default_pricing[model.id]
+
+        self._pricing_cache = new_pricing
+        self._last_updated = time.time()
+
+    def get_pricing_for_model(self, model_id: str) -> Dict[str, float]:
+        """
+        Get pricing information for a specific model.
+
+        Args:
+            model_id: The model identifier
+
+        Returns:
+            Dictionary with 'input' and 'output' pricing per 1K tokens
+        """
+        # Extract base model name without variant suffixes (e.g., ":free", ":extended")
+        base_model_id = model_id.split(':')[0]
+
+        if base_model_id in self._pricing_cache:
+            return self._pricing_cache[base_model_id]
+
+        # If not in cache, try to get from default pricing
+        default_pricing = self._get_default_pricing()
+        if base_model_id in default_pricing:
+            return default_pricing[base_model_id]
+
+        # Default to high cost if model not found
+        return {"input": 0.1, "output": 0.1}
+
+
+# Global pricing service instance
+_pricing_service = PricingService()
 
 
 def calculate_cost(model_id: str, usage: Dict[str, int]) -> float:
     """
     Calculate the estimated cost of a request based on model and token usage.
-    
+
     Args:
         model_id: The model identifier
         usage: Dictionary containing 'prompt_tokens' and 'completion_tokens'
-        
+
     Returns:
         Estimated cost in USD
     """
-    # This is a simplified cost calculation
-    # In a real implementation, you would fetch pricing from the API or a pricing table
-    pricing_map = {
-        # Example pricing (these are not real OpenRouter prices)
-        "openai/gpt-3.5-turbo": {"input": 0.0015, "output": 0.002},  # per 1K tokens
-        "openai/gpt-4": {"input": 0.03, "output": 0.06},  # per 1K tokens
-        "openai/gpt-4-turbo": {"input": 0.01, "output": 0.03},  # per 1K tokens
-        "anthropic/claude-3-haiku": {"input": 0.00025, "output": 0.00125},  # per 1K tokens
-        "anthropic/claude-3-sonnet": {"input": 0.003, "output": 0.015},  # per 1K tokens
-        "anthropic/claude-3-opus": {"input": 0.015, "output": 0.075},  # per 1K tokens
-        "google/gemini-pro": {"input": 0.0005, "output": 0.0015},  # per 1K tokens
-        "mistral/mistral-7b-instruct": {"input": 0.0002, "output": 0.0002},  # per 1K tokens
-        "nousresearch/nous-hermes-2-mixtral-8x7b-dpo": {"input": 0.002, "output": 0.002},  # per 1K tokens
-    }
-    
-    # Extract base model name without variant suffixes (e.g., ":free", ":extended")
-    base_model_id = model_id.split(':')[0]
-    
-    model_pricing = pricing_map.get(base_model_id)
-    if not model_pricing:
-        # Default to a high cost if model not found
-        model_pricing = {"input": 0.1, "output": 0.1}
-    
+    pricing_service = get_pricing_service()
+    model_pricing = pricing_service.get_pricing_for_model(model_id)
+
     input_cost = (usage.get("prompt_tokens", 0) / 1000) * model_pricing["input"]
     output_cost = (usage.get("completion_tokens", 0) / 1000) * model_pricing["output"]
-    
+
     return input_cost + output_cost
+
+
+def get_pricing_service() -> PricingService:
+    """
+    Get the global pricing service instance.
+
+    Returns:
+        PricingService instance
+    """
+    return _pricing_service
+
+
+def update_pricing_from_models(models: list) -> None:
+    """
+    Update the pricing cache from a list of ModelInfo objects.
+
+    Args:
+        models: List of ModelInfo objects containing pricing information
+    """
+    _pricing_service.update_pricing_from_models(models)
 
 
 def normalize_model_id(model_id: str) -> str:
