@@ -108,3 +108,64 @@ Documentation is clear and comprehensive
 Code follows Python best practices and is maintainable
 Library handles edge cases and errors gracefully
 Performance is acceptable for production use
+
+---
+
+## Critical Issues to Address (Added after code review)
+
+The following critical issues were identified in the current implementation and must be addressed:
+
+### 1. Sync Client Implementation Issues
+- **Problem**: The synchronous client's `_run_sync` method has potential threading issues and could cause deadlocks when using `asyncio.run()` from within an existing event loop
+- **Required Fix**: Replace the current sync wrapper with a more robust solution using a persistent event loop or proper async-to-sync bridging
+- **Implementation**: Use `asyncio.new_event_loop()` and `loop.run_until_complete()` in a thread-safe manner, or maintain a persistent event loop for sync operations
+
+### 2. Hardcoded Pricing Data
+- **Problem**: Cost calculation uses hardcoded pricing values in `utils.py` instead of fetching from the API, leading to inaccurate cost estimates
+- **Required Fix**: Implement dynamic pricing retrieval from OpenRouter API or provide a mechanism to update pricing data
+- **Implementation**: Create a pricing service that fetches current model pricing from the API and caches it, or provide a way to update pricing data
+
+### 3. Missing CI/CD Pipeline
+- **Problem**: No GitHub Actions workflow for automated testing, linting, and deployment as required
+- **Required Fix**: Create proper CI/CD pipeline with testing, linting, and deployment workflows
+- **Implementation**: Add `.github/workflows/ci.yml` with tests, linting (black, ruff, mypy), and coverage checks
+
+### 4. Test Coverage Gaps
+- **Problem**: No evidence of 100% coverage for core functionality or 90%+ overall coverage as specified
+- **Required Fix**: Add missing tests to achieve 100% coverage for core functionality
+- **Implementation**: Identify missing test cases and add them, particularly for edge cases and error scenarios
+
+### 5. Missing Integration Tests
+- **Problem**: No live API tests with real OpenRouter API as required
+- **Required Fix**: Add integration tests that run against the live API (with proper test API key management)
+- **Implementation**: Create integration test suite that uses a test API key for live API calls
+
+### 6. Missing Performance Benchmarks
+- **Problem**: No performance benchmarks for critical operations as required
+- **Required Fix**: Implement performance testing for critical operations
+- **Implementation**: Add benchmark tests for key operations like chat completions, streaming, etc.
+
+### 7. Missing Structured Logging
+- **Problem**: No structured logging implementation as specified in requirements
+- **Required Fix**: Implement structured logging with debug levels for troubleshooting
+- **Implementation**: Add logging configuration and use structured logging throughout the library
+
+### 8. Documentation Gaps
+- **Problem**: Missing auto-generated API documentation using Sphinx as required
+- **Required Fix**: Set up Sphinx documentation generation
+- **Implementation**: Add Sphinx configuration and generate API documentation
+
+### 9. Security Considerations
+- **Problem**: Need security review for API key handling and data protection
+- **Required Fix**: Implement proper security measures for API key handling
+- **Implementation**: Add security best practices for API key storage and transmission
+
+### Priority Order for Implementation:
+1. Fix sync client implementation (critical - causes potential deadlocks)
+2. Add CI/CD pipeline (required for project completion)
+3. Implement proper test coverage and integration tests
+4. Fix pricing data to be dynamic
+5. Add structured logging
+6. Add performance benchmarks
+7. Generate Sphinx documentation
+8. Security improvements

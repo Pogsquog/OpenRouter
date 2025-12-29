@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openrouter"
+version = "0.1.0"
+description = "A comprehensive Python library for interfacing with the OpenRouter API"
+readme = "README.md"
+authors = [
+    {name = "OpenRouter Python Library Contributors", email = "maintainers@openrouter-python.org"}
+]
+license = {text = "MIT License"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["openrouter", "ai", "llm", "api", "client", "async", "gpt", "llm-client"]
+dependencies = [
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+    "types-python-dotenv>=1.0.0"
+]
+
+[project.scripts]
+openrouter-demo = "demo.chat_demo:main"
+
+[project.urls]
+Homepage = "https://github.com/openrouter/python-sdk"
+Repository = "https://github.com/openrouter/python-sdk"
+Documentation = "https://github.com/openrouter/python-sdk#readme"
+Changelog = "https://github.com/openrouter/python-sdk/releases"
+"Issue Tracker" = "https://github.com/openrouter/python-sdk/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openrouter*"]
