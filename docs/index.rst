@@ -6,11 +6,17 @@
 Welcome to OpenRouter Python Library's documentation!
 =====================================================
 
+The OpenRouter Python Library provides a comprehensive, production-ready interface
+for interacting with the OpenRouter API. OpenRouter provides a unified API that gives
+you access to hundreds of AI models through a single endpoint, while automatically
+handling fallbacks and routing.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
    modules
+   usage
    security
 
 Indices and tables

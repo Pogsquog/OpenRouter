@@ -1,40 +1,51 @@
 API Reference
 =============
 
-openrouter package
-------------------
+Main Modules
+------------
 
 .. automodule:: openrouter
    :members:
    :undoc-members:
    :show-inheritance:
 
-openrouter.client module
-------------------------
+Client Classes
+--------------
+
+AsyncOpenRouter
+~~~~~~~~~~~~~~~
 
 .. automodule:: openrouter.client
-   :members:
+   :members: AsyncOpenRouter
    :undoc-members:
    :show-inheritance:
 
-openrouter.models module
-------------------------
+OpenRouter (Synchronous Wrapper)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: openrouter.client
+   :members: OpenRouter
+   :undoc-members:
+   :show-inheritance:
+
+Data Models
+-----------
 
 .. automodule:: openrouter.models
    :members:
    :undoc-members:
    :show-inheritance:
 
-openrouter.exceptions module
-----------------------------
+Exceptions
+----------
 
 .. automodule:: openrouter.exceptions
    :members:
    :undoc-members:
    :show-inheritance:
 
-openrouter.utils module
------------------------
+Utility Functions
+-----------------
 
 .. automodule:: openrouter.utils
    :members:
