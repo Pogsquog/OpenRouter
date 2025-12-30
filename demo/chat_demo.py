@@ -174,16 +174,19 @@ class OpenRouterDemo:
         # Validate the model exists
         if not self.client:
             await self.initialize_client()
-        
+
         try:
             # Try to get model info to validate it exists
             await self.client.get_model_info(model_name)
             self.current_model = model_name
             print(f"Switched to model: {model_name}")
         except Exception as e:
-            print(f"Error switching to model {model_name}: {e}")
-            print("Available models:")
-            await self.list_available_models()
+            # For demo purposes, warn the user but still allow the model switch
+            # since some models might not be available for model info lookup
+            # but could still work for chat completion
+            print(f"Warning: Could not validate model {model_name} ({e})")
+            print(f"Proceeding with model: {model_name}")
+            self.current_model = model_name
     
     def clear_conversation(self):
         """Clear the conversation history."""
@@ -248,13 +251,18 @@ class OpenRouterDemo:
     async def run(self, args):
         """Main run method."""
         self.load_config()
-        
+
         if args.list_models:
             await self.list_available_models()
-        elif args.model:
-            await self.switch_model(args.model)
-            if args.message:
-                await self.chat_with_model(args.message, stream=not args.no_stream)
+        elif args.message:
+            # If a message is provided, process it (with optional model switch)
+            if args.model:
+                try:
+                    await self.switch_model(args.model)
+                except Exception:
+                    # If model switching fails, exit with error
+                    sys.exit(1)
+            await self.chat_with_model(args.message, stream=not args.no_stream)
         elif args.interactive or not sys.stdin.isatty():
             await self.run_interactive()
         else:
