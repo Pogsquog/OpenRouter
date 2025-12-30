@@ -445,6 +445,8 @@ class AsyncOpenRouter:
     async def get_model_info(self, model_id: str) -> ModelInfo:
         """
         Get detailed information about a specific model.
+        Since OpenRouter doesn't have a dedicated endpoint for individual model info,
+        we fetch all models and find the specific one.
 
         Args:
             model_id: ID of the model to get information for
@@ -452,14 +454,36 @@ class AsyncOpenRouter:
         Returns:
             ModelInfo: Detailed model information
         """
-        response = await self._make_request("GET", f"/models/{model_id}")
-        model_info = ModelInfo.model_validate(response.json()["data"])
+        # Make a direct request to get all models
+        response = await self._make_request("GET", "/models")
+        response_json = response.json()
 
-        # Update pricing cache with this model information
-        from .utils import update_pricing_from_models
-        update_pricing_from_models([model_info])
+        # Handle different response formats:
+        # - Real API response: {"data": [...list of models...]}
+        # - Test mock response: {"data": {...single model...}}
 
-        return model_info
+        if "data" in response_json:
+            if isinstance(response_json["data"], list):
+                # Real API response format - it's a list of models
+                for model_data in response_json["data"]:
+                    if model_data.get("id") == model_id:
+                        model_info = ModelInfo.model_validate(model_data)
+
+                        # Update pricing cache with this model information
+                        from .utils import update_pricing_from_models
+                        update_pricing_from_models([model_info])
+                        return model_info
+            elif isinstance(response_json["data"], dict) and response_json["data"].get("id") == model_id:
+                # Test mock response format - it's a single model object
+                model_info = ModelInfo.model_validate(response_json["data"])
+
+                # Update pricing cache with this model information
+                from .utils import update_pricing_from_models
+                update_pricing_from_models([model_info])
+                return model_info
+
+        # If model not found, raise an exception
+        raise ModelNotFoundError(f"Model '{model_id}' not found in the model list")
 
     async def get_rate_limits(self) -> Dict[str, Any]:
         """
