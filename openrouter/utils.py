@@ -176,7 +176,8 @@ def validate_api_key(api_key: str) -> bool:
     """
     # OpenRouter API keys typically start with "sk-" and are followed by alphanumeric characters
     # For testing, we also allow "sk-fake-" prefix
-    pattern = r"^(sk-[a-zA-Z0-9]+|sk-fake-[a-zA-Z0-9-]+)$"
+    # Also support the new "sk-or-v1-" format
+    pattern = r"^(sk-[a-zA-Z0-9]+|sk-fake-[a-zA-Z0-9-]+|sk-or-v1-[a-zA-Z0-9-]+)$"
     return bool(re.match(pattern, api_key))
 
 

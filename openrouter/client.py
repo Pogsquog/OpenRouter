@@ -135,7 +135,11 @@ class AsyncOpenRouter:
         Raises:
             OpenRouterError: For various API errors
         """
-        url = urljoin(self.base_url, endpoint)
+        # Properly join the base URL with the endpoint
+        # Remove trailing slash from base_url and leading slash from endpoint to avoid issues with urljoin
+        base_url = self.base_url.rstrip('/')
+        endpoint = endpoint.lstrip('/')
+        url = f"{base_url}/{endpoint}"
         headers = self._get_headers()
 
         self.logger.debug(f"Making {method} request to {url} (API key hash: {self._api_key_hash})")
@@ -423,8 +427,49 @@ class AsyncOpenRouter:
         query_string = "&".join([f"{k}={v}" for k, v in params.items()]) if params else ""
         endpoint = f"/models{'?' + query_string if query_string else ''}"
 
+        # Debug: Log the full URL that will be constructed
+        import urllib.parse
+        full_url = urllib.parse.urljoin(self.base_url, endpoint)
+        self.logger.debug(f"Making request to: {full_url}")
+
         response = await self._make_request("GET", endpoint)
-        response_data = ModelListResponse.model_validate(response.json())
+
+        # Debug: Print raw response content before parsing
+        self.logger.debug(f"Raw response content: {response.text}")
+        self.logger.debug(f"Response status code: {response.status_code}")
+        self.logger.debug(f"Response headers: {dict(response.headers)}")
+
+        # Check if response is empty
+        if not response.text:
+            self.logger.error("Received empty response from API")
+            raise OpenRouterError("Received empty response from API")
+
+        # Check if response is HTML (which would indicate we're getting the website instead of API)
+        if response.text.strip().startswith('<!DOCTYPE html') or response.text.strip().startswith('<html'):
+            self.logger.error("Received HTML response instead of JSON - likely incorrect API endpoint or redirect")
+            raise OpenRouterError("Received HTML response instead of JSON from API")
+
+        try:
+            response_json = response.json()
+            self.logger.debug(f"Parsed JSON response: {response_json}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to decode JSON response: {e}")
+            self.logger.error(f"Raw response text: {response.text}")
+            raise OpenRouterError(f"Invalid JSON response from API: {e}")
+
+        # Check if the response format matches what we expect
+        # The API might return data in a different format than expected
+        if "data" in response_json and isinstance(response_json["data"], list):
+            # If there's no 'object' field, add it to match our expected format
+            if "object" not in response_json:
+                response_json["object"] = "list"
+
+        try:
+            response_data = ModelListResponse.model_validate(response_json)
+        except Exception as e:
+            self.logger.error(f"Failed to validate response: {e}")
+            self.logger.error(f"Response JSON: {response_json}")
+            raise OpenRouterError(f"Invalid response format from API: {e}")
 
         # Update pricing cache with the new model information
         from .utils import update_pricing_from_models
