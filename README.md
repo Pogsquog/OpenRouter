@@ -1,6 +1,6 @@
 # OpenRouter Python Library
 
-A comprehensive, production-ready Python library for interfacing with the OpenRouter API. OpenRouter provides a unified API that gives you access to hundreds of AI models through a single endpoint, while automatically handling fallbacks and routing.
+A Python library for interfacing with the OpenRouter API. OpenRouter provides a unified API that gives you access to hundreds of AI models through a single endpoint, while automatically handling fallbacks and routing.
 
 ## Installation
 
